@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101d20">
+  <meta name="description" content="A single-player fantasy quiz adventure about knowledge, chance, and the choices we make.">
+  <title>Lumen Quest — Knowledge is your superpower</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="data.js"></script><script defer src="engine.js"></script><script defer src="world.js"></script><script defer src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="#" id="brand" class="brand" aria-label="Lumen Quest home"><span class="brand-mark">✦</span><span>LUMEN<span class="brand-light">QUEST</span><small>THE KNOWLEDGE ADVENTURE</small></span></a>
+    <nav aria-label="Game navigation"><button class="nav active" id="navPlay">Adventure</button><button class="nav" id="navHeroes">Heroes <span id="heroCount">2/8</span></button><button class="nav" id="navLeaderboard">Leaderboard</button></nav>
+    <div class="header-actions"><span class="coin-balance"><i class="coin"></i><b id="coins">0</b><small>GOLD</small></span><button id="shopButton" class="shop-button"><span>▣</span> Chest shop <span>↗</span></button><button id="soundButton" class="icon-button" aria-label="Enable sound" title="Enable sound">♫</button></div>
+  </header>
+
+  <main>
+    <div class="page-heading"><div><span class="eyebrow">A LITTLE CURIOSITY. A GREAT ADVENTURE.</span><h1 id="pageTitle">Your next chapter starts here<span>.</span></h1></div><div class="live-label"><span></span> SINGLE-PLAYER EXPEDITION</div></div>
+    <section class="game-layout">
+      <div class="adventure-column">
+        <section class="world-frame" aria-label="Interactive adventure world">
+          <canvas id="world" width="1200" height="680" aria-label="Fantasy combat adventure. A and D or arrows to move, Shift to run, Space to jump, J or E to attack. Enemy defeats open paused questions." tabindex="0"></canvas>
+          <div class="world-vignette"></div>
+          <div class="world-top"><span class="location"><span class="location-icon">⌖</span><span><b id="areaName">LANTERN MEADOW</b><small id="worldTime">Golden hour · Super Easy</small></span></span><button id="dayButton" class="world-button" aria-label="Change time of day">☀ <span>Auto cycle</span></button></div>
+          <div class="hero-hud" id="heroHud" hidden><div class="portrait" id="hudPortrait"></div><div><b id="hudName">Iron Warden</b><div class="health-track"><span id="healthFill"></span></div><small id="healthText">100 / 100 HP</small></div><span class="hud-lives" id="hudLives">♥ ♥ ♥ ♥ ♥</span></div>
+          <div class="world-welcome" id="welcome"><span class="chapter-tag">FIVE REALMS · ONE CLEARER MIND</span><h2>Face the enemy.<br>See through <em>the illusion.</em></h2><p>Fight through five realms of temptation.<br>Question the gamble. Hold on to your values.</p><button class="primary" id="startButton">Begin adventure <span>→</span></button><small>5 quiz chances. Questions pause the action.</small></div>
+          <div class="in-world-prompt" id="interactPrompt" hidden><kbd>J</kbd> Enemy in range <button id="interactButton">Attack →</button></div>
+          <div class="world-bottom"><span><i class="small-star">✦</i> <span id="worldCaption">A world to explore. A mind to empower.</span></span><button id="pauseButton" hidden>Ⅱ Pause</button></div>
+          <div class="touch-controls" id="touchControls" hidden><button data-control="ArrowLeft" aria-label="Move left">◀</button><button data-control="ArrowRight" aria-label="Move right">▶</button><button data-control="Shift" aria-label="Run">Run</button><button data-control="Space" aria-label="Jump">↑</button><button class="touch-attack" data-control="j" aria-label="Attack enemy">⚔</button></div>
+          <div id="readyOverlay" class="ready-overlay" hidden aria-live="polite"><span>TAKE A BREATH</span><strong id="readyNumber">2</strong><b>Get ready</b><small>Action & timer paused</small></div><div id="worldToast" role="status" aria-live="polite"></div>
+        </section>
+        <div class="control-strip"><span><span class="status-dot"></span> <b id="adventureStatus">Ready when you are</b></span><div><span><kbd>A</kbd><kbd>D</kbd> move</span><span><kbd>SHIFT</kbd> run</span><span><kbd>SPACE</kbd> jump</span><span><kbd>J</kbd> attack</span></div><button id="helpButton" aria-label="How to play">?</button></div>
+        <section class="below-world"><div class="mission-card"><span class="feature-icon">✧</span><div><span class="eyebrow">YOUR MISSION</span><h3>Defeat the enemy. Question the promise.</h3><p>Fight an enemy to unlock a casino-awareness question. Learn about betting, temptation, and Islamic values while the world waits for your answer.</p></div></div><div class="reward-card"><span class="eyebrow">KNOWLEDGE PAYS OFF</span><strong><i class="coin"></i> +40–60 <span>gold</span></strong><p>Per correct answer · streak bonuses</p></div></section>
+        <section class="discover"><div class="section-label"><h3>A hero for every kind of curious.</h3><button id="viewHeroes">Meet all 8 heroes <span>↗</span></button></div><div id="heroTeasers" class="hero-teasers"></div></section>
+      </div>
+
+      <aside class="sidebar">
+        <section class="panel expedition"><div class="panel-title"><span class="eyebrow">YOUR EXPEDITION</span><span class="tiny-pill" id="sessionBadge">SETUP</span></div><h2 id="expeditionTitle">Make time for discovery.</h2><p id="expeditionDescription">Choose active play time. Questions and countdowns pause the clock.</p><div class="duration-options" aria-label="Session duration"><button class="selected" data-duration="5"><b>5 <span>min</span></b><small>Quick quest</small></button><button data-duration="10"><b>10 <span>min</span></b><small>Deep adventure</small></button></div><label class="field-label" for="playerName">ADVENTURER NAME</label><input id="playerName" maxlength="20" placeholder="Curious Explorer" autocomplete="nickname"><div class="session-stats"><div><span>ACTIVE TIME LEFT</span><b id="timer">05:00</b></div><div><span>QUIZ CHANCES</span><b id="lives">5 <small>/ 5</small></b></div></div><div class="time-track"><span id="timeFill"></span></div><div class="area-progress"><div><span id="levelNumber">AREA 1 / 5</span><b id="difficultyLabel">Super Easy</b></div><p id="levelProgress">0 / 2 enemies</p><div class="time-track"><span id="levelFill" style="width:0%"></span></div></div><div class="stat-line"><span>Questions answered</span><b id="answered">0</b></div><div class="stat-line"><span>Current streak</span><b id="streak">0 <span class="amber">✦</span></b></div><button class="secondary full" id="questionButton" disabled>Begin adventure to battle <span>→</span></button></section>
+        <section class="panel leaderboard-preview"><div class="panel-title"><span class="eyebrow">REALM RANKINGS</span><span class="sim-tag">SIMULATED</span></div><div class="leader-row"><span class="rank gold">01</span><div class="tiny-avatar crown">♛</div><div><b>Player 2</b><small>Demo rival · not a real player</small></div><strong>2,400</strong></div><div class="leader-row you"><span class="rank">—</span><div class="tiny-avatar">✦</div><div><b id="leaderName">You, the explorer</b><small>Your knowledge score</small></div><strong id="score">0</strong></div><button class="text-button full" id="rankingsButton">Explore the leaderboard <span>→</span></button><p class="muted-note">A fictional rival invites you to notice comparison pressure.</p></section>
+        <section class="wisdom-card"><span>✺</span><div><span class="eyebrow">A THOUGHT FOR THE JOURNEY</span><p>“Luck can change your loot.<br>Knowledge can change your life.”</p><small>Play to learn. Choose with intention.</small></div></section>
+      </aside>
+    </section>
+  </main>
+  <footer><span class="footer-brand">✦ LUMEN QUEST</span><span>A combat adventure about gambling, values & choice.</span><button id="reflectionButton">The lesson behind the adventure ↗</button></footer>
+  <dialog id="modal"><div id="modalContent"></div></dialog>
+  <div id="announcement" class="sr-only" aria-live="polite"></div>
+</body>
+</html>

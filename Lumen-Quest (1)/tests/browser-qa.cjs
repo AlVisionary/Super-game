@@ -1,0 +1,85 @@
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),{spawn}=require('node:child_process'),assert=require('node:assert/strict');
+const project=path.resolve(__dirname,'..'),root=path.join(project,'dist'),qa=path.join(project,'qa');fs.mkdirSync(qa,{recursive:true});
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const server=http.createServer((req,res)=>{const file=path.join(root,req.url==='/'?'index.html':decodeURIComponent(req.url).split('?')[0]);fs.readFile(file,(e,b)=>{res.writeHead(e?404:200,{'Content-Type':file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.png')?'image/png':'text/html'});res.end(e?'Not found':b);});});
+let chrome,ws,checks=0;
+(async()=>{
+  await new Promise(r=>server.listen(4174,'127.0.0.1',r));
+  chrome=spawn('C:/Program Files/Google/Chrome/Application/chrome.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-extensions','--disable-component-update','--remote-debugging-port=0',`--user-data-dir=${path.join(project,'.qa-profile')}`,'about:blank'],{windowsHide:true,stdio:['ignore','ignore','pipe']});
+  const debuggerUrl=await new Promise((resolve,reject)=>{let out='';const timeout=setTimeout(()=>reject(Error('Chrome did not start: '+out.slice(-1000))),20000);chrome.on('error',reject);chrome.on('exit',code=>{clearTimeout(timeout);reject(Error('Chrome exited '+code+': '+out.slice(-1000)));});chrome.stderr.on('data',b=>{out+=b;const match=out.match(/DevTools listening on (ws:\/\/[^\s]+)/);if(match){clearTimeout(timeout);resolve(match[1]);}});});
+  const origin=debuggerUrl.replace('ws://','http://').split('/devtools')[0];
+  const targets=await (await fetch(origin+'/json')).json();const target=targets.find(t=>t.type==='page');ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});let id=0;const pending=new Map(),errors=[];
+  ws.onmessage=event=>{const m=JSON.parse(event.data);if(m.id){const p=pending.get(m.id);if(p){pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}}else if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text+' '+(m.params.exceptionDetails.exception?.description||''));};
+  const send=(method,params={})=>new Promise((resolve,reject)=>{const next=++id;pending.set(next,{resolve,reject});ws.send(JSON.stringify({id:next,method,params}));});
+  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
+  const click=selector=>evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const check=async(name,expression)=>{assert.ok(await evaluate(expression),name);checks++;console.log('PASS '+name);};
+  const screenshot=async filename=>{const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(qa,filename),Buffer.from(r.data,'base64'));};
+  await send('Runtime.enable');await send('Page.enable');await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1160,deviceScaleFactor:1,mobile:false});await send('Page.navigate',{url:'http://127.0.0.1:4174/'});await sleep(1300);
+  await evaluate("localStorage.removeItem('lumen-quest-v1');location.reload()");await sleep(1000);
+  const waitFor=async(expression,timeout=7000)=>{const start=Date.now();while(!(await evaluate(expression))){if(Date.now()-start>timeout)throw Error('Timed out: '+expression);await sleep(60);}};
+  const key=async(value,down=true,code=value)=>send('Input.dispatchKeyEvent',{type:down?'keyDown':'keyUp',key:value,code});
+  const defeatNext=async()=>{await waitFor("Lumen.session.canFight && !document.querySelector('#modal').open");await evaluate("(()=>{const w=Lumen.world,e=w.nearestEnemy;w.player.x=e.x-90;w.player.y=w.ground;w.player.vy=0;w.player.grounded=true;for(let i=0;i<20&&Lumen.session.canFight;i++){w.player.cooldown=0;w.attack();}})()");await waitFor("Lumen.session.phase==='quiz'");};
+  const answerCorrect=()=>evaluate("document.querySelectorAll('[data-answer]')[Lumen.session.answers.findIndex(a=>a.correct)].click()");
+  const continueQuiz=async()=>{await waitFor("Lumen.session.phase!=='ready'");};
+  await check('new atlas and five-area campaign load',"Lumen.world.actions.naturalWidth>0 && LumenData.levels.length===5 && LumenData.questions.length===50");
+  await screenshot('v2-desktop.png');
+  await click('[data-duration="10"]');await click('#startButton');
+  await check('new run starts with two enemies and ten active minutes',"Lumen.session.minutes===10 && Lumen.world.enemies.length===2 && Lumen.session.remaining>595");
+  await key('d',true,'KeyD');const frames=[];
+  for(let i=0;i<8;i++){await sleep(75);frames.push(await evaluate('Lumen.world.animationFrame'));}
+  assert.ok(new Set(frames).size>1);checks++;console.log('PASS walking uses distinct animation frames');
+  await key('Shift',true,'ShiftLeft');await sleep(300);await key('d',false,'KeyD');await key('Shift',false,'ShiftLeft');
+  await check('walking and running move player','Lumen.world.player.x>430');
+  await key(' ',true,'Space');await sleep(180);await check('jump pose and physics work','Lumen.world.player.y<500 && Lumen.world.animationFrame===5');await key(' ',false,'Space');await sleep(800);
+  await evaluate("Lumen.world.player.x=Lumen.world.nearestEnemy.x-90");
+  await key('j',true,'KeyJ');await waitFor("Lumen.session.phase==='quiz'");await key('j',false,'KeyJ');
+  await check('J attacks kill an enemy before the first question',"Lumen.session.defeated===1 && Lumen.world.enemies.filter(e=>!e.alive).length===1 && document.querySelectorAll('[data-answer]').length===4");
+  const frozen=await evaluate("JSON.stringify({time:Lumen.session.remaining,world:Lumen.world.time,health:Lumen.session.hp,x:Lumen.world.player.x,enemies:Lumen.world.enemies.map(e=>e.x)})");
+  await sleep(500);
+  assert.equal(await evaluate("JSON.stringify({time:Lumen.session.remaining,world:Lumen.world.time,health:Lumen.session.hp,x:Lumen.world.player.x,enemies:Lumen.world.enemies.map(e=>e.x)})"),frozen);checks++;console.log('PASS quiz freezes timer, world, enemies, and health');
+  await key('Escape',true);await key('Escape',false);await check('Escape cannot skip the required question',"document.querySelector('#modal').open && Lumen.session.phase==='quiz'");
+  await answerCorrect();await answerCorrect();await check('correct answer pays once and shows explanation',"Lumen.profile.coins===40 && Lumen.session.answered===1 && !!document.querySelector('.quiz-feedback:not(.wrong)')");
+  await check('answer automatically starts a two-second return',"Lumen.session.phase==='ready' && Lumen.session.readyRemaining>1.9 && !!document.querySelector('#returnCountdown')");
+  await screenshot('v2-question.png');
+  const timeBefore=await evaluate('Lumen.session.remaining');await sleep(200);assert.equal(await evaluate('Lumen.session.remaining'),timeBefore);checks++;console.log('PASS reading feedback keeps clock paused');
+  await check('feedback remains visible during return countdown',"Lumen.session.phase==='ready' && document.querySelector('#modal').open");
+  await sleep(600);await check('combat stays frozen before two seconds',"Lumen.session.phase==='ready' && !Lumen.session.canFight");assert.equal(await evaluate('Lumen.session.remaining'),timeBefore);
+  await waitFor("Lumen.session.canFight");await check('combat resumes after countdown',"document.querySelector('#readyOverlay').hidden && Lumen.session.phase==='combat'");
+  await evaluate("Lumen.world.player.x=Lumen.world.nearestEnemy.x-60");
+  const hp=await evaluate('Lumen.session.hp');await waitFor('Lumen.session.hp<'+hp,5000);
+  await check('enemy attacks drain health without spending quiz chances',"Lumen.session.lives===5 && Lumen.session.hp<100");
+  await defeatNext();await check('each area includes an Islamic-values question',"Lumen.session.question.subject==='Islamic values' && Lumen.session.question.source.includes('quran.com')");
+  await evaluate("document.querySelectorAll('[data-answer]')[Lumen.session.answers.findIndex(a=>!a.correct)].click()");
+  await check('wrong answer costs one chance and keeps enemy defeated',"Lumen.session.lives===4 && Lumen.session.defeated===2 && !!document.querySelector('.quiz-feedback.wrong')");
+  await click('[data-action="read-more"]');const readingTime=await evaluate('Lumen.session.readyRemaining');await sleep(300);assert.equal(await evaluate('Lumen.session.readyRemaining'),readingTime);checks++;console.log('PASS Keep reading deliberately freezes the return countdown');await click('[data-action="read-more"]');
+  await continueQuiz();await check('area completion offers both quit and continue',"Lumen.session.phase==='levelComplete' && !!document.querySelector('[data-action=\"end\"]') && !!document.querySelector('[data-action=\"next-level\"]')");
+  await screenshot('v2-level-complete.png');const carriedTime=await evaluate('Lumen.session.remaining');
+  await click('[data-action="next-level"]');
+  await check('next level teleports and restores health with harder enemies',"Lumen.session.levelIndex===1 && Lumen.world.player.x===250 && Lumen.world.enemies.length===3 && Lumen.session.hp===100 && Lumen.session.lives===4 && Lumen.world.level.theme==='desert'");
+  assert.equal(await evaluate('Lumen.session.remaining'),carriedTime);await waitFor('Lumen.session.canFight');
+  await screenshot('v2-bazaar.png');await defeatNext();await answerCorrect();await continueQuiz();
+  await click('#shopButton');const wallet=await evaluate('Lumen.profile.coins');await click('[data-chest="woodland"]');
+  await check('shop and existing hero inventory still work',"Lumen.session.openings===1 && ["+(wallet-80)+","+(wallet-60)+"].includes(Lumen.profile.coins) && !!document.querySelector('.reveal')");
+  await click('[data-equip]');await click('[data-action="close"]');
+  await click('#pauseButton');const paused=await evaluate('Lumen.session.remaining');await sleep(200);assert.equal(await evaluate('Lumen.session.remaining'),paused);await click('[data-action="resume"]');checks++;console.log('PASS manual pause and resume preserve clock');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await sleep(300);
+  await check('mobile has attack controls and no overflow',"document.documentElement.scrollWidth<=391 && !!document.querySelector('[data-control=\"j\"]')");await screenshot('v2-mobile.png');
+  // Fast forward travel and attack cooldown only for the remaining campaign-transition checks.
+  for(let area=1;area<5;area++){
+    while(await evaluate("Lumen.session.phase!=='levelComplete'")){await defeatNext();await answerCorrect();await continueQuiz();}
+    await check('area '+(area+1)+' completes correctly','Lumen.session.levelsCleared==='+ (area+1)+' && Lumen.session.answered===Lumen.session.defeated');
+    if(area<4){await click('[data-action="next-level"]');await waitFor('Lumen.session.canFight');if(area===2)await screenshot('v2-mirrors-mobile.png');}
+  }
+  await check('final area has a finish action and no sixth level',"!!document.querySelector('[data-action=\"victory\"]') && !document.querySelector('[data-action=\"next-level\"]')");
+  await click('[data-action="victory"]');await check('victory records all five areas and the closing reflection',"Lumen.session.reason==='victory' && Lumen.profile.history[0].levels===5 && !!document.querySelector('.reflection-copy')");
+  await screenshot('v2-results-mobile.png');
+  await click('[data-action="new"]');await click('#startAgain');await click('#pauseButton');await click('[data-action="end"]');
+  await check('quit keeps rewards and records the run',"Lumen.session.reason==='choice' && Lumen.profile.history.length===2");
+  await click('[data-action="new"]');await click('#startAgain');await evaluate('Lumen.session.remaining=.03');await waitFor("Lumen.session.reason==='time'");
+  await check('active gameplay expiry ends the run',"!Lumen.session.active && !!document.querySelector('.reflection-copy')");
+  const coins=await evaluate('Lumen.profile.coins');await evaluate('location.reload()');await sleep(800);await check('saved coins and history survive reload','Lumen.profile.coins==='+coins+' && Lumen.profile.history.length===3');
+  await send('Page.navigate',{url:'file:///'+path.join(root,'index.html').replaceAll('\\','/')});await sleep(1000);await check('offline launch loads new animations',"!!window.Lumen && Lumen.world.actions.naturalWidth>0");
+  assert.deepEqual(errors,[],'No uncaught browser errors');checks++;console.log('PASS no uncaught browser errors');
+  fs.writeFileSync(path.join(qa,'result-v2.json'),JSON.stringify({passed:true,checks,errors},null,2));console.log('\n'+checks+' browser checks passed.');
+})().catch(err=>{console.error(err);process.exitCode=1;}).finally(()=>{if(ws)ws.close();if(chrome)chrome.kill();server.close();setTimeout(()=>process.exit(process.exitCode||0),500);});
